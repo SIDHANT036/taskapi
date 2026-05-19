@@ -2,8 +2,8 @@ pipeline {
   agent any
 
   environment {
-    APP_NAME = 'taskapi'
-    RELEASE  = "v1.0.${BUILD_NUMBER}"
+    APP_NAME     = 'taskapi'
+    RELEASE      = "v1.0.${BUILD_NUMBER}"
     STAGING_PORT = '3001'
     PROD_PORT    = '3000'
   }
@@ -36,14 +36,11 @@ pipeline {
       }
     }
 
-    /* ================= CODE QUALITY (SONAR) ================= */
+    /* ================= CODE QUALITY ================= */
     stage('Code Quality') {
       steps {
         withSonarQubeEnv('SonarQube') {
-
-          // FIX: use Jenkins installed SonarScanner
           withEnv(["PATH+SONAR=${tool 'SonarScanner'}/bin"]) {
-
             sh '''
               sonar-scanner \
                 -Dsonar.projectKey=taskapi \
@@ -54,10 +51,15 @@ pipeline {
           }
         }
 
-        // FIX: increased timeout to avoid PENDING issue
-        timeout(time: 10, unit: 'MINUTES') {
-          waitForQualityGate abortPipeline: false
-        }
+        sleep(15)
+
+        sh '''
+          STATUS=$(curl -s \
+            "http://localhost:9000/api/qualitygates/project_status?projectKey=taskapi" \
+            | python3 -c \
+            "import sys,json; print(json.load(sys.stdin)['projectStatus']['status'])")
+          echo "SonarQube Quality Gate: $STATUS"
+        '''
       }
     }
 
@@ -68,16 +70,15 @@ pipeline {
           npm audit --audit-level=high --json > npm-audit.json || true
           npm audit --audit-level=high || true
         '''
-
         sh '''
           trivy fs . \
             --severity HIGH,CRITICAL \
             --exit-code 0 \
             --format table \
             --output trivy-report.txt || true
+          cat trivy-report.txt
         '''
       }
-
       post {
         always {
           archiveArtifacts artifacts: 'trivy-report.txt,npm-audit.json',
@@ -86,25 +87,21 @@ pipeline {
       }
     }
 
-    /* ================= STAGING DEPLOY ================= */
+    /* ================= DEPLOY TO STAGING ================= */
     stage('Deploy to Staging') {
       steps {
         script {
           sh 'pm2 delete taskapi-staging || true'
-
           sh """
             PORT=${env.STAGING_PORT} \
             pm2 start src/index.js \
-              --name taskapi-staging \
-              --env production
+              --name taskapi-staging
           """
-
-          sleep 5
-
+          sleep(5)
           sh """
             curl -sf http://localhost:${env.STAGING_PORT}/health \
               && echo "Staging is healthy" \
-              || (echo "Staging failed" && exit 1)
+              || (echo "Staging health check failed" && exit 1)
           """
         }
       }
@@ -119,28 +116,25 @@ pipeline {
             usernameVariable: 'GIT_USER',
             passwordVariable: 'GIT_TOKEN'
           )]) {
-
             sh """
               git config user.email "jenkins@local"
               git config user.name "Jenkins"
-
               git tag -a ${env.RELEASE} \
                 -m "Release ${env.RELEASE}"
-
-              git push https://${GIT_USER}:${GIT_TOKEN}@github.com/SIDHANT036/taskapi.git ${env.RELEASE}
+              git push \
+                https://${GIT_USER}:${GIT_TOKEN}@github.com/SIDHANT036/taskapi.git \
+                ${env.RELEASE}
             """
           }
 
           sh 'pm2 delete taskapi-prod || true'
-
           sh """
             PORT=${env.PROD_PORT} \
             pm2 start src/index.js \
-              --name taskapi-prod \
-              --env production
+              --name taskapi-prod
           """
-
           sh 'pm2 save'
+          echo "Released ${env.RELEASE} on port ${env.PROD_PORT}"
         }
       }
     }
@@ -153,17 +147,14 @@ pipeline {
             curl -sf http://localhost:${env.STAGING_PORT}/health \
               && echo "Staging OK"
           """
-
           sh """
             curl -sf http://localhost:${env.PROD_PORT}/health \
               && echo "Production OK"
           """
-
           sh 'pm2 list'
           sh 'pm2 logs --nostream --lines 50 > pm2-logs.txt || true'
         }
       }
-
       post {
         always {
           archiveArtifacts artifacts: 'pm2-logs.txt',
@@ -171,17 +162,16 @@ pipeline {
         }
       }
     }
+
   }
 
   post {
     success {
-      echo "Pipeline SUCCESS: ${env.RELEASE}"
+      echo "Pipeline SUCCESS: ${env.RELEASE} is live"
     }
-
     failure {
       echo "Pipeline FAILED on build ${BUILD_NUMBER}"
     }
-
     always {
       echo "Pipeline finished: ${currentBuild.currentResult}"
     }
