@@ -37,13 +37,15 @@ pipeline {
     stage('Code Quality') {
       steps {
         withSonarQubeEnv('SonarQube') {
-          sh '''
-            sonar-scanner \
-              -Dsonar.projectKey=taskapi \
-              -Dsonar.sources=src \
-              -Dsonar.tests=tests \
-              -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
-          '''
+          withEnv(["PATH+SONAR=${tool 'SonarScanner'}/bin"]) {
+            sh '''
+              sonar-scanner \
+                -Dsonar.projectKey=taskapi \
+                -Dsonar.sources=src \
+                -Dsonar.tests=tests \
+                -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+            '''
+          }
         }
 
         timeout(time: 3, unit: 'MINUTES') {
@@ -112,11 +114,9 @@ pipeline {
               git config user.name "Jenkins"
 
               git tag -a ${env.RELEASE} \
-                -m "Release ${env.RELEASE} build ${env.BUILD_NUMBER}"
+                -m "Release ${env.RELEASE}"
 
-              git push \
-                https://${GIT_USER}:${GIT_TOKEN}@github.com/SIDHANT036/taskapi.git \
-                ${env.RELEASE}
+              git push https://${GIT_USER}:${GIT_TOKEN}@github.com/SIDHANT036/taskapi.git ${env.RELEASE}
             """
           }
 
