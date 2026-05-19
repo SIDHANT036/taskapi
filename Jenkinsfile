@@ -15,6 +15,7 @@ pipeline {
 
   stages {
 
+    /* ================= BUILD ================= */
     stage('Build') {
       steps {
         sh 'npm ci'
@@ -23,6 +24,7 @@ pipeline {
       }
     }
 
+    /* ================= TEST ================= */
     stage('Test') {
       steps {
         sh 'npm test'
@@ -34,10 +36,14 @@ pipeline {
       }
     }
 
+    /* ================= CODE QUALITY (SONAR) ================= */
     stage('Code Quality') {
       steps {
         withSonarQubeEnv('SonarQube') {
+
+          // FIX: use Jenkins installed SonarScanner
           withEnv(["PATH+SONAR=${tool 'SonarScanner'}/bin"]) {
+
             sh '''
               sonar-scanner \
                 -Dsonar.projectKey=taskapi \
@@ -48,12 +54,14 @@ pipeline {
           }
         }
 
-        timeout(time: 3, unit: 'MINUTES') {
+        // FIX: increased timeout to avoid PENDING issue
+        timeout(time: 10, unit: 'MINUTES') {
           waitForQualityGate abortPipeline: false
         }
       }
     }
 
+    /* ================= SECURITY ================= */
     stage('Security Scan') {
       steps {
         sh '''
@@ -69,6 +77,7 @@ pipeline {
             --output trivy-report.txt || true
         '''
       }
+
       post {
         always {
           archiveArtifacts artifacts: 'trivy-report.txt,npm-audit.json',
@@ -77,6 +86,7 @@ pipeline {
       }
     }
 
+    /* ================= STAGING DEPLOY ================= */
     stage('Deploy to Staging') {
       steps {
         script {
@@ -100,6 +110,7 @@ pipeline {
       }
     }
 
+    /* ================= RELEASE ================= */
     stage('Release') {
       steps {
         script {
@@ -134,6 +145,7 @@ pipeline {
       }
     }
 
+    /* ================= MONITORING ================= */
     stage('Monitoring') {
       steps {
         script {
@@ -151,6 +163,7 @@ pipeline {
           sh 'pm2 logs --nostream --lines 50 > pm2-logs.txt || true'
         }
       }
+
       post {
         always {
           archiveArtifacts artifacts: 'pm2-logs.txt',
@@ -164,8 +177,13 @@ pipeline {
     success {
       echo "Pipeline SUCCESS: ${env.RELEASE}"
     }
+
     failure {
       echo "Pipeline FAILED on build ${BUILD_NUMBER}"
+    }
+
+    always {
+      echo "Pipeline finished: ${currentBuild.currentResult}"
     }
   }
 }
