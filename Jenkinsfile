@@ -51,14 +51,21 @@ pipeline {
           }
         }
 
-        sleep(15)
+        sleep(20)
 
         sh '''
-          STATUS=$(curl -s \
-            "http://localhost:9000/api/qualitygates/project_status?projectKey=taskapi" \
-            | python3 -c \
-            "import sys,json; print(json.load(sys.stdin)['projectStatus']['status'])")
+          RESPONSE=$(curl -s \
+            -u admin:Rupnagar@123 \
+            "http://localhost:9000/api/qualitygates/project_status?projectKey=taskapi")
+          echo "SonarQube raw response: $RESPONSE"
+
+          STATUS=$(echo "$RESPONSE" | python3 -c \
+            "import sys,json; d=json.load(sys.stdin); \
+             print(d.get('projectStatus',{}).get('status','UNKNOWN'))" \
+            2>/dev/null || echo "UNKNOWN")
+
           echo "SonarQube Quality Gate: $STATUS"
+          echo "View full report: http://localhost:9000/dashboard?id=taskapi"
         '''
       }
     }
@@ -66,10 +73,8 @@ pipeline {
     /* ================= SECURITY ================= */
     stage('Security Scan') {
       steps {
-        sh '''
-          npm audit --audit-level=high --json > npm-audit.json || true
-          npm audit --audit-level=high || true
-        '''
+        sh 'npm audit --audit-level=high --json > npm-audit.json || true'
+        sh 'npm audit --audit-level=high || true'
         sh '''
           trivy fs . \
             --severity HIGH,CRITICAL \
